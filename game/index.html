@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- Solara Bay 3D — HUD and overlays. The 3D scene renders into #app; all UI is plain DOM on top. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Solara Bay 3D — a real-time 3D open-world crime game. Drive, outrun the Solara Bay PD through roadblocks and helicopter air support, and run eight story jobs across a dusk-lit city — with a live clock, six-star heat and three weapons.">
+<meta name="theme-color" content="#ff9a3c">
+<title>Solara Bay 3D — open-world crime</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1426; font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; }
+  #app, #app canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+  #hud.on { display: block; }
+  #top-left { position: absolute; top: 14px; left: 16px; }
+  #stars { font-size: 30px; letter-spacing: 4px; color: #ffd24a; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+  #stars .off { color: rgba(255,255,255,.35); }
+  #cash { font-size: 22px; font-weight: 700; color: #7dff8a; text-shadow: 0 2px 6px rgba(0,0,0,.8); margin-top: 2px; }
+  #clock { font-size: 20px; font-weight: 800; color: #ffd24a; text-shadow: 0 2px 6px rgba(0,0,0,.8); margin-top: 2px; letter-spacing: 1px; }
+  #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; max-width: 520px; }
+  #mission-title { font-size: 13px; letter-spacing: 2px; color: #ffb36b; font-weight: 700; text-shadow: 0 2px 6px #000; }
+  #objective-text { font-size: 17px; font-weight: 600; text-shadow: 0 2px 6px #000; margin-top: 2px; }
+  #arrow { font-size: 26px; color: #ffd24a; text-shadow: 0 2px 6px #000; display: inline-block; margin-top: 2px; }
+  #minimap { position: absolute; top: 14px; right: 16px; border: 2px solid rgba(255,255,255,.35); border-radius: 8px; background: #101018; box-shadow: 0 4px 18px rgba(0,0,0,.6); }
+  #bottom-left { position: absolute; left: 16px; bottom: 16px; }
+  #health-bar { width: 220px; height: 14px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,255,255,.4); border-radius: 7px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #37d67a, #7dff8a); }
+  #ammo { margin-top: 6px; font-size: 16px; font-weight: 700; text-shadow: 0 2px 6px #000; }
+  #speed { position: absolute; right: 20px; bottom: 16px; font-size: 30px; font-weight: 800; text-shadow: 0 2px 8px #000; }
+  #speed small { font-size: 14px; font-weight: 600; color: #ffb36b; }
+  #toast { position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%); font-size: 20px; font-weight: 700; color: #ffd24a; text-shadow: 0 2px 8px #000; opacity: 0; transition: opacity .3s; white-space: nowrap; }
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(ellipse at 50% 40%, rgba(60,25,60,.88), rgba(10,6,16,.96)); z-index: 10; padding: 20px; }
+  .overlay.hidden { display: none; }
+  .overlay h1 { font-size: 64px; margin: 0; letter-spacing: 4px; background: linear-gradient(180deg, #ffd24a, #ff5a2a); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: 0 4px 30px rgba(255,120,40,.35); }
+  .overlay h2 { font-size: 34px; margin: 0 0 8px; letter-spacing: 2px; }
+  .overlay p { max-width: 560px; font-size: 17px; line-height: 1.55; color: #e8ddf0; margin: 8px 0; }
+  .overlay .keys { font-size: 14px; color: #b9a8c8; line-height: 1.8; }
+  .overlay .cta { margin-top: 18px; font-size: 20px; font-weight: 800; color: #ffd24a; animation: pulse 1.2s infinite; }
+  .overlay button { pointer-events: auto; margin-top: 16px; font: 700 18px 'Segoe UI', sans-serif; padding: 12px 28px; border: 0; border-radius: 10px; background: linear-gradient(180deg, #ffd24a, #ff8a2a); color: #241208; cursor: pointer; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<!-- In-game HUD: stars/cash/clock top-left, objective top-centre, minimap top-right, health/ammo bottom-left, speed bottom-right. -->
+<div id="hud">
+  <div id="top-left"><div id="stars"></div><div id="cash">$0</div><div id="clock">18:40</div></div>
+  <div id="objective"><div id="mission-title"></div><div id="objective-text"></div><div id="arrow">➤</div></div>
+  <canvas id="minimap" width="170" height="170"></canvas>
+  <div id="bottom-left"><div id="health-bar"><div id="health-fill"></div></div><div id="ammo"></div></div>
+  <div id="speed">0 <small>km/h</small></div>
+  <div id="toast"></div>
+</div>
+
+<!-- Start, pause, busted, wasted and win overlays. -->
+<div id="menu" class="overlay">
+  <h1>SOLARA BAY 3D</h1>
+  <p>A dusk-lit open-world crime story. You are <b>Kai Rook</b>, a driver who owes fixer <b>Lena Voss</b> a debt — eight jobs across the city, the Solara Bay PD on your tail, and one helicopter that never blinks. The clock runs from 18:40 into the night, the heat goes up to <b>six stars</b>, and you carry three weapons.</p>
+  <p class="keys">WASD / arrows — drive &nbsp;·&nbsp; SPACE — handbrake &nbsp;·&nbsp; CLICK — shoot &nbsp;·&nbsp; 1 / 2 / 3 or Q — switch weapon<br>E — enter / exit car &nbsp;·&nbsp; P — pause &nbsp;·&nbsp; M — mute &nbsp;·&nbsp; R — retry after busted</p>
+  <div class="cta">CLICK TO START</div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <h2>PAUSED</h2>
+  <p>Take a breath, Kai. The city waits — the cops do not.</p>
+  <button id="resume-btn">RESUME</button>
+</div>
+
+<div id="busted" class="overlay hidden">
+  <h2>BUSTED</h2>
+  <p>The Solara Bay PD caught you standing still. Fine paid — the job goes on.</p>
+  <button id="busted-btn">GET BACK OUT THERE</button>
+</div>
+
+<div id="wasted" class="overlay hidden">
+  <h2>WASTED</h2>
+  <p>That one hurt. You wake up patched up — lighter in the pocket, heavier in the lesson.</p>
+  <button id="wasted-btn">BACK ON THE STREET</button>
+</div>
+
+<div id="win" class="overlay hidden">
+  <h2>DEBT PAID</h2>
+  <p>Eight jobs, one sunset, zero witnesses who matter. Lena Voss is square — Solara Bay is yours now.</p>
+  <button id="win-btn">KEEP DRIVING</button>
+</div>
+
+<!-- three.js (vendored) first, then the game modules in load order. -->
+<script src="./vendor/three.min.js"></script>
+<script src="./src/config.js"></script>
+<script src="./src/city.js"></script>
+<script src="./src/vehicles.js"></script>
+<script src="./src/main.js"></script>
+</body>
+</html>
